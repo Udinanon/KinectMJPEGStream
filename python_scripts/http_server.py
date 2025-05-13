@@ -2,7 +2,7 @@ import freenect
 import numpy as np
 import sys
 import signal
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from PIL import Image  # Pillow library (lightweight)
 import io
 FPS = 60
@@ -16,26 +16,57 @@ class MJPEGHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.active = True
         while self.active:
+            if self.path == "/depth":
             # Collect RGB and Depth frames from Kinect
-            rgb_frame, _ = freenect.sync_get_video() 
-            depth_frame, _ = freenect.sync_get_depth(format=freenect.DEPTH_MM)
-            # Reshape depth frame from 2D to flat 3D: (x, y) -> (x, y, 1)
-            depth_frame=depth_frame.reshape(depth_frame.shape[0], depth_frame.shape[1], 1)
-            
-            # Mask out pixels by distance, then normalize and combine
-            # Broadcast to uint8 as floats are not appreciated by Pillow
-            depth_frame[depth_frame > 3000] = 0
-            normalized_depth_frame = (depth_frame - depth_frame.min())/(depth_frame.max())
-            masked_rgb_frame = (rgb_frame * normalized_depth_frame).astype(np.uint8)
-            
-            # Convert to JPEG using Pillow
-            # Load image and convert to RGB
-            img = Image.fromarray(masked_rgb_frame)
-            rgb_img = img.convert("RGB")
-            # Create empty buffer to srite JPEG encoded image
-            jpeg_buffer = io.BytesIO()
-            # Save and read back
-            rgb_img.save(jpeg_buffer, format="JPEG", quality=85)
+                #depth_frame, _ = freenect.sync_get_depth(format=freenect.DEPTH_MM)
+                depth_frame, _ = freenect.sync_get_depth()
+                # Reshape depth frame from 2D to flat 3D: (x, y) -> (x, y, 1)
+                #depth_frame=depth_frame.reshape(depth_frame.shape[0], depth_frame.shape[1], 1)
+                #depth_3D = np.zeros_like(depth_frame)
+                #result = np.array([depth_to_metric(*idx, depth_frame[idx] * 2) for idx in np.ndindex(depth_frame.shape)])
+                # Mask out pixels by distance, then normalize and combine
+                # Broadcast to uint8 as floats are not appreciated by Pillow
+                #depth_frame[depth_frame > 3000] = 0
+                normalized_depth_frame = (depth_frame - depth_frame.min())/(depth_frame.max()) * 255
+                jpeg_buffer = io.BytesIO()
+                img = Image.fromarray(normalized_depth_frame)
+                depth_img = img.convert("RGB")
+                depth_img.save(jpeg_buffer, format="JPEG", quality=85)
+            if self.path == "/rgb":
+                #masked_rgb_frame = (rgb_frame * normalized_depth_frame).astype(np.uint8)
+                rgb_frame, _ = freenect.sync_get_video() 
+
+                # Convert to JPEG using Pillow
+                # Load image and convert to RGB
+                img = Image.fromarray(rgb_frame)
+                rgb_img = img.convert("RGB")
+                # Create empty buffer to srite JPEG encoded image
+                jpeg_buffer = io.BytesIO()
+                # Save and read back
+                rgb_img.save(jpeg_buffer, format="JPEG", quality=85)
+            if self.path == "/":
+                depth_frame, _ = freenect.sync_get_depth()
+                normalized_depth_frame = (depth_frame - depth_frame.min())/(depth_frame.max()) * 255
+                #depth_frame=depth_frame.reshape(depth_frame.shape[0], depth_frame.shape[1], 3)
+                rgb_frame, _ = freenect.sync_get_video()
+
+                jpeg_buffer = io.BytesIO()
+                img = Image.fromarray(rgb_frame)
+
+                rgb_img = img.convert("RGB")
+
+                img = Image.fromarray(normalized_depth_frame)
+                depth_img = img.convert("RGB")
+
+                w = rgb_img.size[0] + depth_img.size[0]
+                h = max(rgb_img.size[1], depth_img.size[1])
+                im = Image.new("RGB", (w, h))
+
+                im.paste(rgb_img)
+                im.paste(depth_img, (rgb_img.size[0], 0))
+                im.save(jpeg_buffer, format="JPEG", quality=85)
+
+
             jpeg_data = jpeg_buffer.getvalue()
 
             # Stream over HTTP
@@ -52,7 +83,7 @@ class MJPEGHandler(BaseHTTPRequestHandler):
 
 # Start server
 
-MPEG_Server = HTTPServer(("0.0.0.0", 8080), MJPEGHandler)
+MPEG_Server = ThreadingHTTPServer(("0.0.0.0", 8080), MJPEGHandler)
 def stop_server(signal, frame):
     MPEG_Server.server_close()
     print("Server stopped")
