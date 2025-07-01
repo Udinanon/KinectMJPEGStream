@@ -239,3 +239,9 @@ profile.*
 
 libfreenect
 fakenect
+*.md
+*.txt
+C/hello_browser
+*.jpeg
+C/usb_tester/tester
+LOVR/json.lua

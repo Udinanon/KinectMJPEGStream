@@ -39,8 +39,8 @@ enum MHD_Result answer_to_connection(void *cls, struct MHD_Connection *connectio
   unsigned char *data;
   unsigned int timestamp;
   freenect_sync_get_video((void **)(&data), &timestamp, 0, FREENECT_VIDEO_RGB);
-  int width = 640/* width of the image */;
-  int height = 480/* height of the image */;
+  unsigned int width = 640/* width of the image */;
+  unsigned int height = 480 /* height of the image */;
 
   // Create a PNG image from the RGB data
   MemoryBuffer mem = {NULL, 0, 0};
@@ -76,7 +76,7 @@ enum MHD_Result answer_to_connection(void *cls, struct MHD_Connection *connectio
   png_write_info(png, info);
 
   // Write the image data
-  for (int y = 0; y < height; y++) {
+  for (unsigned int y = 0; y < height; y++) {
     png_bytep row = data + (y * width * 3);  // 3 bytes per pixel
     png_write_row(png, row);
   }
@@ -84,8 +84,9 @@ enum MHD_Result answer_to_connection(void *cls, struct MHD_Connection *connectio
 
   png_destroy_write_struct(&png, &info);
 
-  char* page;
-  asprintf(&page, "<html><body>Hello, browser! Timestamp= %u </body></html>", timestamp);
+  //char* page;
+  //asprintf(&page, "<html><body>Hello, browser! Timestamp= %u </body></html>", timestamp);
+  //free(page);
 
   struct MHD_Response *response;
   int ret;
@@ -93,11 +94,12 @@ enum MHD_Result answer_to_connection(void *cls, struct MHD_Connection *connectio
   //                                           (void *)page, MHD_RESPMEM_PERSISTENT);
   //MHD_add_response_header(response, "Content-Type", "image/png");
   response = MHD_create_response_from_buffer(mem.size,
-                                             (void *)mem.buffer, MHD_RESPMEM_PERSISTENT);
+                                             (void *)mem.buffer, MHD_RESPMEM_MUST_FREE);
   MHD_add_response_header(response, "Content-Type", "image/png");
   //MHD_add_response_header(response, "Content-Length", (const char *)str);
   ret = MHD_queue_response(connection, MHD_HTTP_OK, response);
   MHD_destroy_response(response);
+  //free(data);
   return ret;
 }
 
