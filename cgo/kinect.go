@@ -44,6 +44,8 @@ func getRGB(w http.ResponseWriter, r *http.Request) {
 func getRGB_feed(w http.ResponseWriter, r *http.Request) {
 	var frame_info C.freenect_frame_mode
 	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_RGB)
+	fmt.Println("Resolution:", frame_info.width, "x", frame_info.height, "\nBits per Pixel:", frame_info.data_bits_per_pixel, "+", frame_info.padding_bits_per_pixel)
+	fmt.Println("Total bytes:", frame_info.bytes, (C.int)(frame_info.width)*(C.int)(frame_info.height)*(C.int)(frame_info.data_bits_per_pixel+frame_info.padding_bits_per_pixel)/8)
 
 	mimeWriter := multipart.NewWriter(w)
 	mimeWriter.SetBoundary("--boundary")
@@ -88,6 +90,8 @@ func getRGB_feed(w http.ResponseWriter, r *http.Request) {
 func getDepth_feed(w http.ResponseWriter, r *http.Request) {
 	var frame_info C.freenect_frame_mode
 	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_DEPTH_10BIT)
+	fmt.Println("Resolution:", frame_info.width, "x", frame_info.height, "\nBits per Pixel:", frame_info.data_bits_per_pixel, "+", frame_info.padding_bits_per_pixel)
+	fmt.Println("Total bytes:", frame_info.bytes, (C.int)(frame_info.width)*(C.int)(frame_info.height)*(C.int)(frame_info.data_bits_per_pixel+frame_info.padding_bits_per_pixel)/8)
 
 	mimeWriter := multipart.NewWriter(w)
 	mimeWriter.SetBoundary("--boundary")
@@ -173,6 +177,8 @@ func getBayer_feed(w http.ResponseWriter, r *http.Request) {
 func getIR_feed(w http.ResponseWriter, r *http.Request) {
 	var frame_info C.freenect_frame_mode
 	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_IR_8BIT)
+	fmt.Println("Resolution:", frame_info.width, "x", frame_info.height, "\nBits per Pixel:", frame_info.data_bits_per_pixel, "+", frame_info.padding_bits_per_pixel)
+	fmt.Println("Total bytes:", frame_info.bytes, (C.int)(frame_info.width)*(C.int)(frame_info.height)*(C.int)(frame_info.data_bits_per_pixel+frame_info.padding_bits_per_pixel)/8)
 
 	mimeWriter := multipart.NewWriter(w)
 	mimeWriter.SetBoundary("--boundary")
@@ -214,6 +220,8 @@ func getIR_feed(w http.ResponseWriter, r *http.Request) {
 func getYUV_feed(w http.ResponseWriter, r *http.Request) {
 	var frame_info C.freenect_frame_mode
 	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_RGB)
+	fmt.Println("Resolution:", frame_info.width, "x", frame_info.height, "\nBits per Pixel:", frame_info.data_bits_per_pixel, "+", frame_info.padding_bits_per_pixel)
+	fmt.Println("Total bytes:", frame_info.bytes, (C.int)(frame_info.width)*(C.int)(frame_info.height)*(C.int)(frame_info.data_bits_per_pixel+frame_info.padding_bits_per_pixel)/8)
 
 	mimeWriter := multipart.NewWriter(w)
 	mimeWriter.SetBoundary("--boundary")
@@ -273,8 +281,7 @@ func get_ir_image() image.Image {
 	//Collect info about output resolution
 	var frame_info C.freenect_frame_mode
 	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_IR_8BIT)
-	fmt.Println("Resolution:", frame_info.width, "x", frame_info.height, "\nBits per Pixel:", frame_info.data_bits_per_pixel, "+", frame_info.padding_bits_per_pixel)
-	fmt.Println("Total bytes:", frame_info.bytes, (C.int)(frame_info.width)*(C.int)(frame_info.height)*(C.int)(frame_info.data_bits_per_pixel+frame_info.padding_bits_per_pixel)/8)
+
 	// Get the video frrame
 	var data unsafe.Pointer
 	var timestamp C.uint
@@ -307,8 +314,7 @@ func get_bayer_image() image.Image {
 	//Collect info about output resolution
 	var frame_info C.freenect_frame_mode
 	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_BAYER)
-	fmt.Println("Resolution:", frame_info.width, "x", frame_info.height, "\nBits per Pixel:", frame_info.data_bits_per_pixel, "+", frame_info.padding_bits_per_pixel)
-	fmt.Println("Total bytes:", frame_info.bytes, (C.int)(frame_info.width)*(C.int)(frame_info.height)*(C.int)(frame_info.data_bits_per_pixel+frame_info.padding_bits_per_pixel)/8)
+
 	// Get the video frrame
 	var data unsafe.Pointer
 	var timestamp C.uint
@@ -341,8 +347,7 @@ func get_depth_image() image.Image {
 	//Collect info about output resolution
 	var frame_info C.freenect_frame_mode
 	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_DEPTH_10BIT)
-	fmt.Println("Resolution:", frame_info.width, "x", frame_info.height, "\nBits per Pixel:", frame_info.data_bits_per_pixel, "+", frame_info.padding_bits_per_pixel)
-	fmt.Println("Total bytes:", frame_info.bytes, (C.int)(frame_info.width)*(C.int)(frame_info.height)*(C.int)(frame_info.data_bits_per_pixel+frame_info.padding_bits_per_pixel)/8)
+
 	// Get the video frrame
 	var data unsafe.Pointer
 	var timestamp C.uint
@@ -359,12 +364,11 @@ func get_depth_image() image.Image {
 			// Calculate the index in the RGB data
 
 			index := (y*int(frame_info.width) + x)
-			r := (float32(*(*C.uint16_t)(unsafe.Pointer(uintptr(data) + uintptr(index)*unsafe.Sizeof(uint16(0))))) / 2048) * 255
+			col_16 := (*(*C.uint16_t)(unsafe.Pointer(uintptr(data) + uintptr(index)*unsafe.Sizeof(uint16(0)))))
+			r := uint8(col_16 >> 2)
+			b := uint8(col_16 << 4)
 			// Set the pixel in the image
-			RGB_image.SetRGBA(x, y, color.RGBA{uint8(r), uint8(r), uint8(r), 255})
-			if x == 0 && y == 0 {
-				fmt.Println(x, y, uint16(r), *(*C.uint16_t)(unsafe.Pointer(uintptr(data) + uintptr(index)*unsafe.Sizeof(uint16(0)))))
-			}
+			RGB_image.SetRGBA(x, y, color.RGBA{r, 0, b, 255})
 		}
 	}
 	return RGB_image
