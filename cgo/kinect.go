@@ -28,10 +28,14 @@ func getRoot(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("got / request\n")
 	io.WriteString(w, "This is my website!\n")
 }
+
 func getRGB(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("got /rgb request\n")
 	w.Header().Set("Content-Type", "image/png")
-	var image = get_RGB_image(false)
+	var frame_info C.freenect_frame_mode
+	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_RGB)
+	get_MJPEG_feed(w, r, frame_info, get_RGB_image)
+	var image = get_RGB_image(frame_info)
 	buf := new(bytes.Buffer)
 	err := png.Encode(buf, image)
 	if err != nil {
@@ -41,9 +45,7 @@ func getRGB(w http.ResponseWriter, r *http.Request) {
 }
 
 // thanks https://github.com/nsmith5/mjpeg/blob/main/mjpeg.go
-func getRGB_feed(w http.ResponseWriter, r *http.Request) {
-	var frame_info C.freenect_frame_mode
-	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_RGB)
+func get_MJPEG_feed(w http.ResponseWriter, r *http.Request, frame_info C.freenect_frame_mode, frame_handler func(frame_info C.freenect_frame_mode) image.Image) {
 	fmt.Println("Resolution:", frame_info.width, "x", frame_info.height, "\nBits per Pixel:", frame_info.data_bits_per_pixel, "+", frame_info.padding_bits_per_pixel)
 	fmt.Println("Total bytes:", frame_info.bytes, (C.int)(frame_info.width)*(C.int)(frame_info.height)*(C.int)(frame_info.data_bits_per_pixel+frame_info.padding_bits_per_pixel)/8)
 
@@ -60,183 +62,7 @@ func getRGB_feed(w http.ResponseWriter, r *http.Request) {
 	for {
 		partHeader := make(textproto.MIMEHeader)
 		partHeader.Add("Content-Type", "image/jpeg")
-		var img = get_RGB_image(false)
-
-		//n, err := io.WriteString(w, boundary)
-		//if err != nil || n != len(boundary) {
-		//	return
-		//}
-		partWriter, partErr := mimeWriter.CreatePart(partHeader)
-		if nil != partErr {
-			fmt.Println(fmt.Sprintf(partErr.Error()))
-			break
-		}
-		buf := new(bytes.Buffer)
-
-		err := png.Encode(buf, img)
-		if err != nil {
-			return
-		}
-		if _, writeErr := partWriter.Write(buf.Bytes()); nil != writeErr {
-			fmt.Println(fmt.Sprintf(writeErr.Error()))
-		}
-		// n, err = io.WriteString(w, "\r\n")
-		// if err != nil || n != 2 {
-		// 	return
-		// }
-	}
-}
-
-func getDepth_feed(w http.ResponseWriter, r *http.Request) {
-	var frame_info C.freenect_frame_mode
-	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_DEPTH_10BIT)
-	fmt.Println("Resolution:", frame_info.width, "x", frame_info.height, "\nBits per Pixel:", frame_info.data_bits_per_pixel, "+", frame_info.padding_bits_per_pixel)
-	fmt.Println("Total bytes:", frame_info.bytes, (C.int)(frame_info.width)*(C.int)(frame_info.height)*(C.int)(frame_info.data_bits_per_pixel+frame_info.padding_bits_per_pixel)/8)
-
-	mimeWriter := multipart.NewWriter(w)
-	mimeWriter.SetBoundary("--boundary")
-	contentType := fmt.Sprintf("multipart/x-mixed-replace;boundary=%s", mimeWriter.Boundary())
-	w.Header().Add("Cache-Control", "no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0")
-	w.Header().Add("Content-Type", contentType)
-	w.Header().Add("Pragma", "no-cache")
-	w.Header().Add("Connection", "close")
-	w.Header().Add("Content-Length", string(int(frame_info.bytes)))
-
-	//boundary := "\r\n--frame\r\nContent-Type: image/png\r\n\r\n"
-	for {
-		partHeader := make(textproto.MIMEHeader)
-		partHeader.Add("Content-Type", "image/jpeg")
-		var img = get_depth_image()
-
-		//n, err := io.WriteString(w, boundary)
-		//if err != nil || n != len(boundary) {
-		//	return
-		//}
-		partWriter, partErr := mimeWriter.CreatePart(partHeader)
-		if nil != partErr {
-			fmt.Println(fmt.Sprintf(partErr.Error()))
-			break
-		}
-		buf := new(bytes.Buffer)
-
-		//err := jpeg.Encode(buf, img, &jpeg.Options{Quality: 75})
-		err := png.Encode(buf, img)
-		if err != nil {
-			return
-		}
-		if _, writeErr := partWriter.Write(buf.Bytes()); nil != writeErr {
-			fmt.Println(fmt.Sprintf(writeErr.Error()))
-		}
-		// n, err = io.WriteString(w, "\r\n")
-		// if err != nil || n != 2 {
-		// 	return
-		// }
-	}
-}
-func getBayer_feed(w http.ResponseWriter, r *http.Request) {
-	var frame_info C.freenect_frame_mode
-	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_BAYER)
-
-	mimeWriter := multipart.NewWriter(w)
-	mimeWriter.SetBoundary("--boundary")
-	contentType := fmt.Sprintf("multipart/x-mixed-replace;boundary=%s", mimeWriter.Boundary())
-	w.Header().Add("Cache-Control", "no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0")
-	w.Header().Add("Content-Type", contentType)
-	w.Header().Add("Pragma", "no-cache")
-	w.Header().Add("Connection", "close")
-	w.Header().Add("Content-Length", string(int(frame_info.bytes)))
-
-	//boundary := "\r\n--frame\r\nContent-Type: image/png\r\n\r\n"
-	for {
-		partHeader := make(textproto.MIMEHeader)
-		partHeader.Add("Content-Type", "image/jpeg")
-		var img = get_bayer_image()
-
-		//n, err := io.WriteString(w, boundary)
-		//if err != nil || n != len(boundary) {
-		//	return
-		//}
-		partWriter, partErr := mimeWriter.CreatePart(partHeader)
-		if nil != partErr {
-			fmt.Println(fmt.Sprintf(partErr.Error()))
-			break
-		}
-		buf := new(bytes.Buffer)
-
-		err := png.Encode(buf, img)
-		if err != nil {
-			return
-		}
-		if _, writeErr := partWriter.Write(buf.Bytes()); nil != writeErr {
-			fmt.Println(fmt.Sprintf(writeErr.Error()))
-		}
-
-	}
-}
-
-func getIR_feed(w http.ResponseWriter, r *http.Request) {
-	var frame_info C.freenect_frame_mode
-	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_IR_8BIT)
-	fmt.Println("Resolution:", frame_info.width, "x", frame_info.height, "\nBits per Pixel:", frame_info.data_bits_per_pixel, "+", frame_info.padding_bits_per_pixel)
-	fmt.Println("Total bytes:", frame_info.bytes, (C.int)(frame_info.width)*(C.int)(frame_info.height)*(C.int)(frame_info.data_bits_per_pixel+frame_info.padding_bits_per_pixel)/8)
-
-	mimeWriter := multipart.NewWriter(w)
-	mimeWriter.SetBoundary("--boundary")
-	contentType := fmt.Sprintf("multipart/x-mixed-replace;boundary=%s", mimeWriter.Boundary())
-	w.Header().Add("Cache-Control", "no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0")
-	w.Header().Add("Content-Type", contentType)
-	w.Header().Add("Pragma", "no-cache")
-	w.Header().Add("Connection", "close")
-	w.Header().Add("Content-Length", string(int(frame_info.bytes)))
-
-	//boundary := "\r\n--frame\r\nContent-Type: image/png\r\n\r\n"
-	for {
-		partHeader := make(textproto.MIMEHeader)
-		partHeader.Add("Content-Type", "image/jpeg")
-		var img = get_ir_image()
-
-		//n, err := io.WriteString(w, boundary)
-		//if err != nil || n != len(boundary) {
-		//	return
-		//}
-		partWriter, partErr := mimeWriter.CreatePart(partHeader)
-		if nil != partErr {
-			fmt.Println(fmt.Sprintf(partErr.Error()))
-			break
-		}
-		buf := new(bytes.Buffer)
-
-		err := png.Encode(buf, img)
-		if err != nil {
-			return
-		}
-		if _, writeErr := partWriter.Write(buf.Bytes()); nil != writeErr {
-			fmt.Println(fmt.Sprintf(writeErr.Error()))
-		}
-
-	}
-}
-
-func getYUV_feed(w http.ResponseWriter, r *http.Request) {
-	var frame_info C.freenect_frame_mode
-	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_RGB)
-	fmt.Println("Resolution:", frame_info.width, "x", frame_info.height, "\nBits per Pixel:", frame_info.data_bits_per_pixel, "+", frame_info.padding_bits_per_pixel)
-	fmt.Println("Total bytes:", frame_info.bytes, (C.int)(frame_info.width)*(C.int)(frame_info.height)*(C.int)(frame_info.data_bits_per_pixel+frame_info.padding_bits_per_pixel)/8)
-
-	mimeWriter := multipart.NewWriter(w)
-	mimeWriter.SetBoundary("--boundary")
-	contentType := fmt.Sprintf("multipart/x-mixed-replace;boundary=%s", mimeWriter.Boundary())
-	w.Header().Add("Cache-Control", "no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0")
-	w.Header().Add("Content-Type", contentType)
-	w.Header().Add("Pragma", "no-cache")
-	w.Header().Add("Connection", "close")
-	w.Header().Add("Content-Length", string(int(frame_info.bytes)))
-
-	//boundary := "\r\n--frame\r\nContent-Type: image/png\r\n\r\n"
-	for {
-		partHeader := make(textproto.MIMEHeader)
-		partHeader.Add("Content-Type", "image/jpeg")
-		var img = get_YUV_image()
+		var img = frame_handler(frame_info)
 
 		partWriter, partErr := mimeWriter.CreatePart(partHeader)
 		if nil != partErr {
@@ -260,11 +86,41 @@ func main() {
 
 	http.HandleFunc("/", getRoot)
 	http.HandleFunc("/rgb", getRGB)
-	http.HandleFunc("/rgb_feed", getRGB_feed)
-	http.HandleFunc("/depth_feed", getDepth_feed)
-	http.HandleFunc("/ir_feed", getIR_feed)
-	http.HandleFunc("/yuv_feed", getYUV_feed)
-	http.HandleFunc("/bayer_feed", getBayer_feed)
+	http.HandleFunc("/rgb_feed", func(w http.ResponseWriter, r *http.Request) {
+		var frame_info C.freenect_frame_mode
+		frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_RGB)
+		get_MJPEG_feed(w, r, frame_info, get_RGB_image)
+	})
+
+	http.HandleFunc("/depth_feed", func(w http.ResponseWriter, r *http.Request) {
+		var frame_info C.freenect_frame_mode
+		frame_info = C.freenect_find_depth_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_DEPTH_10BIT)
+		get_MJPEG_feed(w, r, frame_info, get_depth_image)
+	})
+
+	http.HandleFunc("/ir_feed", func(w http.ResponseWriter, r *http.Request) {
+		var frame_info C.freenect_frame_mode
+		frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_IR_8BIT)
+		get_MJPEG_feed(w, r, frame_info, get_ir_image)
+	})
+
+	http.HandleFunc("/yuv_feed", func(w http.ResponseWriter, r *http.Request) {
+		var frame_info C.freenect_frame_mode
+		frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_YUV_RGB)
+		get_MJPEG_feed(w, r, frame_info, get_YUV_image)
+	})
+
+	http.HandleFunc("/bayer_feed", func(w http.ResponseWriter, r *http.Request) {
+		var frame_info C.freenect_frame_mode
+		frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_BAYER)
+		get_MJPEG_feed(w, r, frame_info, get_bayer_image)
+	})
+
+	fmt.Println("0.0.0.0:3333/rgb_feed")
+	fmt.Println("0.0.0.0:3333/ir_feed")
+	fmt.Println("0.0.0.0:3333/depth_feed")
+	fmt.Println("0.0.0.0:3333/bayer_feed")
+	fmt.Println("0.0.0.0:3333/yuv_feed")
 
 	err := http.ListenAndServe(":3333", nil)
 	if errors.Is(err, http.ErrServerClosed) {
@@ -276,11 +132,7 @@ func main() {
 	}
 }
 
-func get_ir_image() image.Image {
-
-	//Collect info about output resolution
-	var frame_info C.freenect_frame_mode
-	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_IR_8BIT)
+func get_ir_image(frame_info C.freenect_frame_mode) image.Image {
 
 	// Get the video frrame
 	var data unsafe.Pointer
@@ -309,11 +161,7 @@ func get_ir_image() image.Image {
 	return RGB_image
 }
 
-func get_bayer_image() image.Image {
-
-	//Collect info about output resolution
-	var frame_info C.freenect_frame_mode
-	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_BAYER)
+func get_bayer_image(frame_info C.freenect_frame_mode) image.Image {
 
 	// Get the video frrame
 	var data unsafe.Pointer
@@ -342,11 +190,7 @@ func get_bayer_image() image.Image {
 	return RGB_image
 }
 
-func get_depth_image() image.Image {
-
-	//Collect info about output resolution
-	var frame_info C.freenect_frame_mode
-	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_DEPTH_10BIT)
+func get_depth_image(frame_info C.freenect_frame_mode) image.Image {
 
 	// Get the video frrame
 	var data unsafe.Pointer
@@ -374,11 +218,7 @@ func get_depth_image() image.Image {
 	return RGB_image
 }
 
-func get_RGB_image(save bool) image.Image {
-
-	//Collect info about output resolution
-	var frame_info C.freenect_frame_mode
-	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_RGB)
+func get_RGB_image(frame_info C.freenect_frame_mode) image.Image {
 
 	// Get the video frrame
 	var data unsafe.Pointer
@@ -401,27 +241,10 @@ func get_RGB_image(save bool) image.Image {
 		}
 	}
 
-	if save {
-		// Save the image to a file
-		file, err := os.Create("output.png")
-		if err != nil {
-			panic(err)
-		}
-		defer file.Close()
-
-		// Encode the image to PNG format
-		if err := png.Encode(file, RGB_image); err != nil {
-			panic(err)
-		}
-	}
 	return RGB_image
 }
 
-func get_YUV_image() image.Image {
-
-	//Collect info about output resolution
-	var frame_info C.freenect_frame_mode
-	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_RGB)
+func get_YUV_image(frame_info C.freenect_frame_mode) image.Image {
 
 	// Get the video frrame
 	var data unsafe.Pointer
