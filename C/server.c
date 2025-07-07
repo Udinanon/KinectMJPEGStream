@@ -1,4 +1,5 @@
 #include <libfreenect/libfreenect_sync.h>
+#include <libfreenect/libfreenect.h>
 #include <microhttpd.h>
 #include <png.h>
 #include <stdio.h>
@@ -38,13 +39,22 @@ enum MHD_Result answer_to_connection(void *cls, struct MHD_Connection *connectio
   // Assume you have the raw RGB data in a buffer
   unsigned char *data;
   unsigned int timestamp;
-  freenect_sync_get_video((void **)(&data), &timestamp, 0, FREENECT_VIDEO_RGB);
-  unsigned int width = 640/* width of the image */;
-  unsigned int height = 480 /* height of the image */;
 
+  freenect_frame_mode frame_info;
+
+  if (strcmp("/rgb", url) == 0) {
+    frame_info = freenect_find_video_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_VIDEO_RGB);
+    freenect_sync_get_video_with_res((void **)(&data), &timestamp, 0, frame_info.resolution, frame_info.video_format);
+  }
+  if (strcmp("/depth", url) == 0) {
+    frame_info = freenect_find_depth_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_DEPTH_10BIT);
+    freenect_sync_get_depth_with_res((void**)&data, &timestamp, 0, frame_info.resolution, frame_info.depth_format);
+  }
+  printf("Resolution: %dx%d\nBits per Pixel:%d+%d\n", frame_info.width, frame_info.height, frame_info.data_bits_per_pixel, frame_info.padding_bits_per_pixel);
+  printf("Total bytes: %d %d\n", frame_info.bytes, (frame_info.width) * (frame_info.height) * (frame_info.data_bits_per_pixel + frame_info.padding_bits_per_pixel) / 8);
   // Create a PNG image from the RGB data
   MemoryBuffer mem = {NULL, 0, 0};
-  mem.capacity = width * height * 4;  // Initial capacity (estimate)
+  mem.capacity = frame_info.bytes;  // Initial capacity (estimate)
   mem.buffer = malloc(mem.capacity);
   if (!mem.buffer) {
     return 1;  // Memory allocation failed
@@ -70,23 +80,35 @@ enum MHD_Result answer_to_connection(void *cls, struct MHD_Connection *connectio
   }
 
   png_set_write_fn(png, &mem, write_data, NULL);
-  png_set_IHDR(png, info, width, height, 8, PNG_COLOR_TYPE_RGB,
-               PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
-               PNG_FILTER_TYPE_DEFAULT);
-  png_write_info(png, info);
+
+
+  if (strcmp("/rgb", url) == 0) {
+    png_set_IHDR(png, info, frame_info.width, frame_info.height, 8, PNG_COLOR_TYPE_RGB,
+                 PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
+                 PNG_FILTER_TYPE_DEFAULT);
+    png_write_info(png, info);
+    for (int16_t y = 0; y < frame_info.height; y++) {
+      png_bytep row = data + (y * frame_info.width * 3);  // 3 bytes per pixel
+      png_write_row(png, row);
+    }
+  }
+  if (strcmp("/depth", url) == 0) {
+    png_set_IHDR(png, info, frame_info.width, frame_info.height, 16, PNG_COLOR_TYPE_GRAY,
+                 PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
+                 PNG_FILTER_TYPE_DEFAULT);
+    png_write_info(png, info);
+    for (int16_t y = 0; y < frame_info.height; y++) {
+      png_bytep row = data + (y * frame_info.width * 2);  // 2 bytes per pixel
+      png_write_row(png, row);
+    }
+  }
 
   // Write the image data
-  for (unsigned int y = 0; y < height; y++) {
-    png_bytep row = data + (y * width * 3);  // 3 bytes per pixel
-    png_write_row(png, row);
-  }
+
   png_write_end(png, NULL);
 
   png_destroy_write_struct(&png, &info);
 
-  //char* page;
-  //asprintf(&page, "<html><body>Hello, browser! Timestamp= %u </body></html>", timestamp);
-  //free(page);
 
   struct MHD_Response *response;
   int ret;
