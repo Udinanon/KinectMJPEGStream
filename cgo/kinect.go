@@ -29,13 +29,10 @@ func getRoot(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, "This is my website!\n")
 }
 
-func getRGB(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("got /rgb request\n")
+func get_image(w http.ResponseWriter, r *http.Request, frame_info C.freenect_frame_mode, frame_handler func(frame_info C.freenect_frame_mode) image.Image) {
+	fmt.Printf("got image request\n")
 	w.Header().Set("Content-Type", "image/png")
-	var frame_info C.freenect_frame_mode
-	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_RGB)
-	get_MJPEG_feed(w, r, frame_info, get_RGB_image)
-	var image = get_RGB_image(frame_info)
+	var image = frame_handler(frame_info)
 	buf := new(bytes.Buffer)
 	err := png.Encode(buf, image)
 	if err != nil {
@@ -56,7 +53,6 @@ func get_MJPEG_feed(w http.ResponseWriter, r *http.Request, frame_info C.freenec
 	w.Header().Add("Content-Type", contentType)
 	w.Header().Add("Pragma", "no-cache")
 	w.Header().Add("Connection", "close")
-	w.Header().Add("Content-Length", string(int(frame_info.bytes)))
 
 	//boundary := "\r\n--frame\r\nContent-Type: image/png\r\n\r\n"
 	for {
@@ -85,7 +81,31 @@ func get_MJPEG_feed(w http.ResponseWriter, r *http.Request, frame_info C.freenec
 func main() {
 
 	http.HandleFunc("/", getRoot)
-	http.HandleFunc("/rgb", getRGB)
+
+	http.HandleFunc("/rgb", func(w http.ResponseWriter, r *http.Request) {
+		var frame_info C.freenect_frame_mode
+		frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_RGB)
+		get_image(w, r, frame_info, get_RGB_image)
+	})
+
+	http.HandleFunc("/depth", func(w http.ResponseWriter, r *http.Request) {
+		var frame_info C.freenect_frame_mode
+		frame_info = C.freenect_find_depth_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_DEPTH_10BIT)
+		get_image(w, r, frame_info, get_depth_image)
+	})
+
+	http.HandleFunc("/ir", func(w http.ResponseWriter, r *http.Request) {
+		var frame_info C.freenect_frame_mode
+		frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_IR_8BIT)
+		get_image(w, r, frame_info, get_ir_image)
+	})
+
+	http.HandleFunc("/bayer", func(w http.ResponseWriter, r *http.Request) {
+		var frame_info C.freenect_frame_mode
+		frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_BAYER)
+		get_image(w, r, frame_info, get_bayer_image)
+	})
+
 	http.HandleFunc("/rgb_feed", func(w http.ResponseWriter, r *http.Request) {
 		var frame_info C.freenect_frame_mode
 		frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_RGB)
@@ -104,12 +124,6 @@ func main() {
 		get_MJPEG_feed(w, r, frame_info, get_ir_image)
 	})
 
-	http.HandleFunc("/yuv_feed", func(w http.ResponseWriter, r *http.Request) {
-		var frame_info C.freenect_frame_mode
-		frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_YUV_RGB)
-		get_MJPEG_feed(w, r, frame_info, get_YUV_image)
-	})
-
 	http.HandleFunc("/bayer_feed", func(w http.ResponseWriter, r *http.Request) {
 		var frame_info C.freenect_frame_mode
 		frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_BAYER)
@@ -120,7 +134,6 @@ func main() {
 	fmt.Println("0.0.0.0:3333/ir_feed")
 	fmt.Println("0.0.0.0:3333/depth_feed")
 	fmt.Println("0.0.0.0:3333/bayer_feed")
-	fmt.Println("0.0.0.0:3333/yuv_feed")
 
 	err := http.ListenAndServe(":3333", nil)
 	if errors.Is(err, http.ErrServerClosed) {
@@ -224,33 +237,6 @@ func get_RGB_image(frame_info C.freenect_frame_mode) image.Image {
 	var data unsafe.Pointer
 	var timestamp C.uint
 	C.freenect_sync_get_video_with_res(&data, &timestamp, 0, C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_RGB)
-
-	// Parse data into a Go bytes array and save as PNG
-	var image_data = C.GoBytes(data, frame_info.bytes)
-	RGB_image := image.NewRGBA(image.Rect(0, 0, int(frame_info.width), int(frame_info.height)))
-	for y := 0; y < int(frame_info.height); y++ {
-		for x := 0; x < int(frame_info.width); x++ {
-			// Calculate the index in the RGB data
-			index := (y*int(frame_info.width) + x) * 3
-			r := image_data[index]
-			g := image_data[index+1]
-			b := image_data[index+2]
-
-			// Set the pixel in the image
-			RGB_image.Set(x, y, color.RGBA{r, g, b, 255}) // 255 for full opacity
-		}
-	}
-
-	return RGB_image
-}
-
-func get_YUV_image(frame_info C.freenect_frame_mode) image.Image {
-
-	// Get the video frrame
-	var data unsafe.Pointer
-	var timestamp C.uint
-	//val :=
-	C.freenect_sync_get_video_with_res(&data, &timestamp, 0, C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_YUV_RGB)
 
 	// Parse data into a Go bytes array and save as PNG
 	var image_data = C.GoBytes(data, frame_info.bytes)
