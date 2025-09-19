@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/png"
 	"io"
 	"mime/multipart"
@@ -82,6 +83,12 @@ func main() {
 
 	http.HandleFunc("/", getRoot)
 
+	http.HandleFunc("/omni_feed", func(w http.ResponseWriter, r *http.Request) {
+		var frame_info C.freenect_frame_mode
+		//frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_RGB)
+		get_MJPEG_feed(w, r, frame_info, get_omni_image)
+	})
+
 	http.HandleFunc("/rgb", func(w http.ResponseWriter, r *http.Request) {
 		var frame_info C.freenect_frame_mode
 		frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_RGB)
@@ -143,6 +150,27 @@ func main() {
 		os.Exit(1)
 
 	}
+}
+
+func get_omni_image(frame_info C.freenect_frame_mode) image.Image {
+	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_IR_8BIT)
+	ir_image := get_ir_image(frame_info)
+
+	frame_info = C.freenect_find_depth_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_DEPTH_10BIT)
+	depth_image := get_depth_image(frame_info)
+
+	frame_info = C.freenect_find_video_mode(C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_RGB)
+	//rgb_image := get_RGB_image(frame_info)
+	//rgb_image.Bounds().Dx() +
+	compound_width := depth_image.Bounds().Dx() + ir_image.Bounds().Dx()
+	max_hieght := max(depth_image.Bounds().Dy(), ir_image.Bounds().Dy()) //, rgb_image.Bounds().Dy())
+	larger_rect := image.Rect(0, 0, compound_width, max_hieght)
+	omni_image := image.NewRGBA(larger_rect)
+	draw.Draw(omni_image, ir_image.Bounds(), ir_image, image.Point{0, 0}, draw.Src)
+	draw.Draw(omni_image, depth_image.Bounds().Add(image.Point{ir_image.Bounds().Dx(), 0}), depth_image, image.Point{0, 0}, draw.Src)
+	//draw.Draw(omni_image, ir_image.Bounds(), ir_image, image.Point{ir_image.Bounds().Max.X + depth_image.Bounds().Max.X, 0}, draw.Src)
+
+	return omni_image
 }
 
 func get_ir_image(frame_info C.freenect_frame_mode) image.Image {
