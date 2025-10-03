@@ -11,16 +11,20 @@ package main
 import "C"
 import (
 	"bytes"
-	"errors"
+	"context"
+	"flag"
 	"fmt"
 	"image"
 	"image/color"
 	"image/jpeg"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
 	"os"
+	"runtime/pprof"
+	"time"
 	"unsafe"
 )
 
@@ -77,6 +81,22 @@ func get_MJPEG_feed(w http.ResponseWriter, r *http.Request, frame_info C.freenec
 }
 
 func main() {
+
+	cpuprofile := flag.String("cpuprofile", "", "write cpu profile to file")
+	flag.Parse()
+
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatalf("cannot create %s: %v", *cpuprofile, err)
+		}
+		log.Println("starting CPU profiling")
+		pprof.StartCPUProfile(f)
+		defer func() {
+			pprof.StopCPUProfile()
+			log.Println("stopped CPU profiling")
+		}()
+	}
 
 	http.HandleFunc("/", getRoot)
 
@@ -138,15 +158,27 @@ func main() {
 	fmt.Println("0.0.0.0:3333/ir_feed")
 	fmt.Println("0.0.0.0:3333/depth_feed")
 	fmt.Println("0.0.0.0:3333/bayer_feed")
-
-	err := http.ListenAndServe(":3333", nil)
-	if errors.Is(err, http.ErrServerClosed) {
-		fmt.Printf("server closed\n")
-	} else if err != nil {
-		fmt.Printf("error starting server: %s\n", err)
-		os.Exit(1)
-
+	srv := &http.Server{
+		Addr:    ":3333",
+		Handler: nil,
 	}
+	http.HandleFunc("/kill", func(w http.ResponseWriter, r *http.Request) {
+		go func() {
+			fmt.Println("\nAdmin request received – shutting down…")
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			err := srv.Shutdown(ctx)
+			if err != nil {
+				fmt.Printf("Graceful shutdown failed: %v – forcing close\n", err)
+				_ = srv.Close()
+			}
+		}()
+	})
+	fmt.Println("Server listening on :3333")
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		fmt.Printf("listen error: %v\n", err)
+	}
+	fmt.Println("Server stopped")
 }
 
 func get_omni_image(frame_info C.freenect_frame_mode) image.Image {
