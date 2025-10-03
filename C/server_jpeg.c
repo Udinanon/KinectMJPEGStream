@@ -1,13 +1,13 @@
 // Necessary for some fucntions and constants like FREENECT_RESOLUTION_MEDIUM and freenect_find_depth_mode()
-#include <libfreenect/libfreenect.h>
-// For freenect_sync_get_video_with_res()
-#include <libfreenect/libfreenect_sync.h>
-#include <microhttpd.h>
-#include <png.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
+#include <libfreenect/libfreenect.h>
+// For freenect_sync_get_video_with_res()
+#include <jerror.h>
+#include <jpeglib.h>
+#include <libfreenect/libfreenect_sync.h>
+#include <microhttpd.h>
 
 // Local network port
 #define PORT 8888
@@ -17,11 +17,10 @@
 // sutomatically interpolated value to a const string
 static const char *CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" BOUNDARY;
 
-// intermediate struct used in PNG generation
+// Buffer containing JPEG image data
 typedef struct {
   unsigned char *buffer;
   size_t size;
-  size_t capacity;
 } MemoryBuffer;
 
 // information about both the internal state (HEADER, DATA, FINISHED) and details such as what kind of info was requested (RGB, Depth)
@@ -31,76 +30,75 @@ struct connection_state {
          FINISHED } state; // What stage of the connection we're in
   size_t offset; // when writing large images we need top send multiple blocks with an offset
   freenect_frame_mode frame_info; // identifies specifics on captiured image data such as size, bit depth, type
-  MemoryBuffer* mem; // containing the PNG data
-  unsigned int output_bit_depth; // for libPNG
-  unsigned int PNG_COLOR_TYPE;   // for libPNG
+  MemoryBuffer* mem; // containing the JPEG data
+  unsigned int is_monochrome; // for libjpeg
   int is_depth;  // freenect uses different functions based on which kind data is being read
 };
 
-// Callback function used by libPNG. Here it writes to the *MemoryBuffer and reallopcates more capacity if needed
-void write_data(png_structp png_ptr, png_bytep data, png_size_t length) {
-  MemoryBuffer *mem = (MemoryBuffer *)png_get_io_ptr(png_ptr);
+unsigned char *depth_to_RGB(unsigned char *data, freenect_frame_mode frame_info) {
+  // allocate space for expanded rgb data
+  unsigned char* output = malloc(frame_info.width * frame_info.height * 3);
+  // for each pixel read the original bits and expand into 24bit RGB
+  int bytes_per_pixel = (frame_info.data_bits_per_pixel + frame_info.padding_bits_per_pixel) / 8; for (int16_t y = 0; y < frame_info.height; y++) {
+    for (int16_t x = 0; x < frame_info.width; x++) {
+      // point to the 11/10 packed/unpacked bits of the next pixel
 
-  // Ensure there's enough space in the buffer
-  if (mem->size + length > mem->capacity) {
-    mem->capacity = (mem->size + length) * 2;  // Increase capacity
-    mem->buffer = realloc(mem->buffer, mem->capacity);
-    if (!mem->buffer) {
-      png_error(png_ptr, "Memory allocation failed");
+      int position_offset = x + (y * frame_info.width);
+      unsigned char* pixel_data = data + (position_offset * bytes_per_pixel);
+      // prase these into a color
+      unsigned char r = *pixel_data >> 2;
+      unsigned char b = *pixel_data << 4;
+      unsigned char g = 0;
+
+      // we can use assignment as chars should always be bytes
+      output[(position_offset * 3)] = r;
+      output[(position_offset * 3) + 1] = g;
+      output[(position_offset * 3) + 2] = b;
     }
   }
-
-  // Copy the data to the buffer
-  memcpy(mem->buffer + mem->size, data, length);
-  mem->size += length;
+  return output;
 }
 
-// Convert data to PNG and store the result in mem
-int image_to_PNG(MemoryBuffer * mem, unsigned char *data, freenect_frame_mode frame_info, int color_depth_output, int PNG_TYPE) {
-  // Initialize mem
-  mem->capacity = frame_info.bytes;  // Initial capacity (estimate)
-  mem->buffer = malloc(mem->capacity);
-  if (!mem->buffer) {
-    return -1;  // Memory allocation failed
+MemoryBuffer *image_to_JPEG(unsigned char *data, freenect_frame_mode frame_info, int is_monochrome) {
+  struct jpeg_compress_struct info;
+  struct jpeg_error_mgr err;
+
+  unsigned char *lpRowBuffer[1];
+
+  info.err = jpeg_std_error(&err);
+  jpeg_CreateCompress(&info, JPEG_LIB_VERSION, sizeof(info));
+  uint8_t *outbuffer = NULL;
+  uint64_t outlen = 0;
+  jpeg_mem_dest(&info, &outbuffer, &outlen);
+  info.image_width = frame_info.width;
+  info.image_height = frame_info.height;
+  if (is_monochrome == TRUE) {
+    info.in_color_space = JCS_GRAYSCALE;
+    info.input_components = 1;
+  }
+  else{
+    info.in_color_space = JCS_RGB;
+    info.input_components = 3;
   }
 
-  png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-  if (!png) {
-    free(mem->buffer);
-    return -1;
+  jpeg_set_defaults(&info);
+  jpeg_set_quality(&info, 99, TRUE);
+
+  jpeg_start_compress(&info, TRUE);
+      /* Write everyscanline ... */
+  while (info.next_scanline < info.image_height) {
+    lpRowBuffer[0] = &(data[info.next_scanline * (frame_info.width * info.input_components)]);
+    jpeg_write_scanlines(&info, lpRowBuffer, 1);
   }
 
-  png_infop info = png_create_info_struct(png);
-  if (!info) {
-    png_destroy_write_struct(&png, (png_infopp)NULL);
-    free(mem->buffer);
-    return -1;
-  }
+  jpeg_finish_compress(&info);
 
-  if (setjmp(png_jmpbuf(png))) {
-    png_destroy_write_struct(&png, &info);
-    free(mem->buffer);
-    return -1;
-  }
+  jpeg_destroy_compress(&info);
 
-  png_set_write_fn(png, mem, write_data, NULL);
-
-  // PNG properties are set here, such as image shapoe and size, compression and interlacing
-  png_set_IHDR(png, info, frame_info.width, frame_info.height, color_depth_output,  PNG_TYPE,
-                PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
-                PNG_FILTER_TYPE_DEFAULT);
-  png_write_info(png, info);
-  for (int16_t y = 0; y < frame_info.height; y++) {
-    // We don't write individual pixels but whole rows
-    // We read from data with anm awppropriate offset and use the frame_info to knwo how many bytes per pixel are there, depending on the type of data (RGB, Depth)
-    png_bytep row = data + (y * frame_info.width * (frame_info.data_bits_per_pixel+frame_info.padding_bits_per_pixel)/8);  
-    png_write_row(png, row);
-  }
-
-  // Conclude PNG generation and clean structs
-  png_write_end(png, NULL);
-  png_destroy_write_struct(&png, &info);
-  return 0;
+  MemoryBuffer* mem = malloc(sizeof(MemoryBuffer));
+  mem->buffer = outbuffer;
+  mem->size = outlen;
+  return mem;
 }
 
 // connection callback, continuously serves frames and boundaries until the connection is severed
@@ -131,8 +129,8 @@ static ssize_t content_reader(void *cls, uint64_t pos, char *buf, size_t max) {
     if (conn->offset >= header_len) {
       conn->state = SEND_DATA;
       conn->offset = 0;
-      printf("CREATING PNG\n");
-      // Create a PNG image from the RGB data
+      printf("CREATING JPEG\n");
+      // Create a JPEG image from the RGB data
       unsigned char *data;
       unsigned int timestamp;
       if (conn->is_depth==0){
@@ -140,12 +138,9 @@ static ssize_t content_reader(void *cls, uint64_t pos, char *buf, size_t max) {
       }
       else{
         freenect_sync_get_depth_with_res((void **)(&data), &timestamp, 0, conn->frame_info.resolution, conn->frame_info.depth_format);
+        data = depth_to_RGB(data, conn->frame_info);
       }
-      conn->mem->size = 0;
-      if (image_to_PNG(conn->mem, data, conn->frame_info, conn->output_bit_depth, conn->PNG_COLOR_TYPE) == -1) {
-        printf("ERROR IN PNG");
-        return -1;
-      }
+      conn->mem = image_to_JPEG(data, conn->frame_info, conn->is_monochrome);
     }
     return to_copy;
   }
@@ -192,29 +187,21 @@ enum MHD_Result answer_to_connection(void *cls, struct MHD_Connection *connectio
       state->state = SEND_HEADER;
       state->offset = 0;
       *con_cls = state;
-      // Prepare MemoryBuffer
-      state->mem = malloc(sizeof(MemoryBuffer));
-      state->mem->buffer = NULL;
-      state->mem->capacity = 0;
-      state->mem->size = 0;
-      // Set information regarding Kinect data and PNG settings
+      // Set information regarding Kinect data and JPEG settings
       if (strcmp("/feed_rgb", url) == 0) {
         state->frame_info = freenect_find_video_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_VIDEO_RGB);
         state->is_depth=0;
-        state->output_bit_depth = 8;
-        state->PNG_COLOR_TYPE = PNG_COLOR_TYPE_RGB;
+        state->is_monochrome = FALSE;
       }
       if (strcmp("/feed_ir", url) == 0) {
         state->frame_info = freenect_find_video_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_VIDEO_IR_8BIT);
         state->is_depth = 0;
-        state->output_bit_depth = 8;
-        state->PNG_COLOR_TYPE = PNG_COLOR_TYPE_GRAY;
+        state->is_monochrome = TRUE;
       }
       if (strcmp("/feed_depth", url) == 0) {
         state->frame_info = freenect_find_depth_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_DEPTH_10BIT);
         state->is_depth=1;
-        state->output_bit_depth = 16;
-        state->PNG_COLOR_TYPE = PNG_COLOR_TYPE_GRAY;
+        state->is_monochrome = FALSE;
       }
       return MHD_YES;
     }
@@ -242,7 +229,6 @@ enum MHD_Result answer_to_connection(void *cls, struct MHD_Connection *connectio
 
   unsigned char *data;
   int output_bit_depth;
-  int PNG_COLOR_TYPE;
   unsigned int timestamp;
   // gather data and parameters based on request 
   freenect_frame_mode frame_info;
@@ -250,29 +236,24 @@ enum MHD_Result answer_to_connection(void *cls, struct MHD_Connection *connectio
       frame_info = freenect_find_video_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_VIDEO_RGB);
       freenect_sync_get_video_with_res((void **)(&data), &timestamp, 0, frame_info.resolution, frame_info.video_format);
       output_bit_depth = 8;
-      PNG_COLOR_TYPE = PNG_COLOR_TYPE_RGB;
     }
   if (strcmp("/depth", url) == 0) {
     frame_info = freenect_find_depth_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_DEPTH_10BIT);
     freenect_sync_get_depth_with_res((void**)&data, &timestamp, 0, frame_info.resolution, frame_info.depth_format);
     output_bit_depth = 16;
-    PNG_COLOR_TYPE = PNG_COLOR_TYPE_GRAY;
+    data = depth_to_RGB(data, frame_info);
   }
   printf("Resolution: %dx%d\nBits per Pixel:%d+%d\n", frame_info.width, frame_info.height, frame_info.data_bits_per_pixel, frame_info.padding_bits_per_pixel);
   printf("Total bytes: %d %d\n", frame_info.bytes, (frame_info.width) * (frame_info.height) * (frame_info.data_bits_per_pixel + frame_info.padding_bits_per_pixel) / 8);
-  // Create a PNG image from the RGB data
-  MemoryBuffer mem = {NULL, 0, 0};
-  if (image_to_PNG(&mem, data, frame_info, output_bit_depth, PNG_COLOR_TYPE)) {
-    printf("ERROR IN PNG");
-    return MHD_NO;
-  }
+  // Create a JPEG image from the RGB data
+  MemoryBuffer* mem = image_to_JPEG(data, frame_info, output_bit_depth);
 
   struct MHD_Response *response;
   int ret;
 
-  response = MHD_create_response_from_buffer(mem.size,
-                                             (void *)mem.buffer, MHD_RESPMEM_MUST_FREE);
-  MHD_add_response_header(response, "Content-Type", "image/png");
+  response = MHD_create_response_from_buffer(mem->size,
+                                             (void *)mem->buffer, MHD_RESPMEM_MUST_FREE);
+  MHD_add_response_header(response, "Content-Type", "image/jpeg");
   ret = MHD_queue_response(connection, MHD_HTTP_OK, response);
   MHD_destroy_response(response);
   return ret;
