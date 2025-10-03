@@ -15,8 +15,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"image/draw"
-	"image/png"
+	"image/jpeg"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -32,10 +31,10 @@ func getRoot(w http.ResponseWriter, r *http.Request) {
 
 func get_image(w http.ResponseWriter, r *http.Request, frame_info C.freenect_frame_mode, frame_handler func(frame_info C.freenect_frame_mode) image.Image) {
 	fmt.Printf("got image request\n")
-	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Content-Type", "image/jpeg")
 	var image = frame_handler(frame_info)
 	buf := new(bytes.Buffer)
-	err := png.Encode(buf, image)
+	err := jpeg.Encode(buf, image, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -66,8 +65,7 @@ func get_MJPEG_feed(w http.ResponseWriter, r *http.Request, frame_info C.freenec
 			break
 		}
 		buf := new(bytes.Buffer)
-
-		err := png.Encode(buf, img)
+		err := jpeg.Encode(buf, img, nil)
 		if err != nil {
 			return
 		}
