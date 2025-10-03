@@ -228,20 +228,29 @@ cython_debug/
 
 # Venvs
 .venv*
-.env
 kinect_env
 
+# IDE and misc
 .vscode
 .python-version
-Notes.md
-*.png
 profile.*
+*.pcapng
+*.pprof
+LOVR/json.lua
+cgo/*_tester.go
 
-libfreenect
-fakenect
+# Media and markdown
+*.png
 *.md
 *.txt
-C/hello_browser
 *.jpeg
-C/usb_tester/tester
-LOVR/json.lua
+*.mp4
+*.webm
+
+# Freenect
+libfreenect
+fakenect
+
+# Builds
+**/build/
+
