@@ -55,7 +55,6 @@ func get_MJPEG_feed(w http.ResponseWriter, r *http.Request, frame_info C.freenec
 	w.Header().Add("Pragma", "no-cache")
 	w.Header().Add("Connection", "close")
 
-	//boundary := "\r\n--frame\r\nContent-Type: image/png\r\n\r\n"
 	for {
 		partHeader := make(textproto.MIMEHeader)
 		partHeader.Add("Content-Type", "image/jpeg")
@@ -181,10 +180,7 @@ func get_ir_image(frame_info C.freenect_frame_mode) image.Image {
 	//val :=
 	C.freenect_sync_get_video_with_res(&data, &timestamp, 0, C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_IR_8BIT)
 
-	// Parse data into a Go bytes array and save as PNG
-	//var image_data = C.GoBytes(data, frame_info.bytes)
-
-	// Parse data into a Go bytes array and save as PNG
+	// Parse data into a Go bytes array and then as image.Image
 	var image_data = C.GoBytes(data, frame_info.bytes)
 	RGB_image := image.NewRGBA(image.Rect(0, 0, int(frame_info.width), int(frame_info.height)))
 	for y := 0; y < int(frame_info.height); y++ {
@@ -207,13 +203,10 @@ func get_bayer_image(frame_info C.freenect_frame_mode) image.Image {
 	// Get the video frrame
 	var data unsafe.Pointer
 	var timestamp C.uint
-	//val :=
+
 	C.freenect_sync_get_video_with_res(&data, &timestamp, 0, C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_BAYER)
 
-	// Parse data into a Go bytes array and save as PNG
-	//var image_data = C.GoBytes(data, frame_info.bytes)
-
-	// Parse data into a Go bytes array and save as PNG
+	// Parse data into a Go bytes array and then as image.Image
 	var image_data = C.GoBytes(data, frame_info.bytes)
 	RGB_image := image.NewRGBA(image.Rect(0, 0, int(frame_info.width), int(frame_info.height)))
 	for y := 0; y < int(frame_info.height); y++ {
@@ -239,10 +232,6 @@ func get_depth_image(frame_info C.freenect_frame_mode) image.Image {
 	//val :=
 	C.freenect_sync_get_depth_with_res(&data, &timestamp, 0, C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_DEPTH_10BIT)
 
-	// Parse data into a Go bytes array and save as PNG
-	//var image_data = C.GoBytes(data, frame_info.bytes)
-
-	//var u16_data = (*C.ushort)(data)
 	RGB_image := image.NewRGBA(image.Rect(0, 0, int(frame_info.width), int(frame_info.height)))
 	for y := 0; y < int(frame_info.height); y++ {
 		for x := 0; x < int(frame_info.width); x++ {
@@ -266,7 +255,7 @@ func get_RGB_image(frame_info C.freenect_frame_mode) image.Image {
 	var timestamp C.uint
 	C.freenect_sync_get_video_with_res(&data, &timestamp, 0, C.FREENECT_RESOLUTION_MEDIUM, C.FREENECT_VIDEO_RGB)
 
-	// Parse data into a Go bytes array and save as PNG
+	// Parse data into a Go bytes array and then as image.Image
 	var image_data = C.GoBytes(data, frame_info.bytes)
 	RGB_image := image.NewRGBA(image.Rect(0, 0, int(frame_info.width), int(frame_info.height)))
 	for y := 0; y < int(frame_info.height); y++ {
