@@ -141,6 +141,11 @@ static ssize_t content_reader(void *cls, uint64_t pos, char *buf, size_t max) {
         data = depth_to_RGB(data, conn->frame_info);
       }
       conn->mem = image_to_JPEG(data, conn->frame_info, conn->is_monochrome);
+      // depth_to_RGB allocates a new memory segment that has to be freed
+      if (conn->is_depth == 1){
+        free(data);
+      }
+      // the one produced by freenect is onlyn a poimnter to an internally managed ring buffer, so there's no need to clear it.
     }
     return to_copy;
   }
